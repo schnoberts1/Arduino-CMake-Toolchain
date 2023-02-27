@@ -70,7 +70,10 @@ The provided toolchain file (Arduino-toolchain.cmake) is passed to cmake as folo
 cmake -D CMAKE_TOOLCHAIN_FILE=/path/to/Arduino-toolchain.cmake <CMAKE_SOURCE_DIR>
 ```
 
-The above command generates a file **BoardOptions.cmake** in the build directory, that enumerates all the installed Arduino boards (installed through Arduino IDE or any other board manager) and their menu options. Select the Arduino board and any non-default options for the board from the BoardOptions.cmake (Or from cmake-gui), and then reinvoke the same command above.
+The above command generates a file **BoardOptions.cmake** in the build directory, that enumerates all the installed
+Arduino boards (installed through Arduino IDE or any other board manager) and their menu options. Select the Arduino
+board and any non-default options for the board from the BoardOptions.cmake (Or from cmake-gui), and then reinvoke the
+same command above.
 
 The above command generates a file **BoardOptions.cmake** in the build directory, that enumerates all the installed
 Arduino boards (installed through Arduino IDE or any other board manager) and their menu options. Select the Arduino
@@ -99,7 +102,11 @@ Note:
 
 ### Linking with Arduino code/libraries (`target_link_arduino_libraries`)
 
-`<CMAKE_SOURCE_DIR>/CMakeLists.txt` and any other dependent CMake scripts of the project contain the standard CMake scripting using `add_library`, `add_executable` etc. without Arduino specific changes. Refer to CMake documentation for the same. However when the project source code depends on the Arduino code or libraries (i.e. if the corresponding header files are included), then appropriate linking is required, as expected. This is done using `target_link_arduino_libraries` as explained below.
+`<CMAKE_SOURCE_DIR>/CMakeLists.txt` and any other dependent CMake scripts of the project contain the standard CMake
+scripting using `add_library`, `add_executable` etc. without Arduino specific changes. Refer to CMake documentation for
+the same. However when the project source code depends on the Arduino code or libraries (i.e. if the corresponding
+header files are included), then appropriate linking is required, as expected. This is done
+using `target_link_arduino_libraries` as explained below.
 
 If Arduino.h is included in your source files, then the target must be linked against the 'core' Arduino library as
 follows.
@@ -126,8 +133,12 @@ target_link_arduino_libraries(my_app AUTO_PUBLIC)
 ```
 
 Note:
-1. *Wire* and *core* in the above examples are not CMake targets. They are just Arduino library or include names (case-sensitive). Library and include names are the same in most libraries, but they may differ.
-1. It is required only to specify the direct dependencies. Any deeper dependencies are automatically identified and linked. For example, if *SD.h* is included, it is sufficient to link with *SD*, even if *SD* depends on other Arduino libraries, like *SPI*.
+
+1. *Wire* and *core* in the above examples are not CMake targets. They are just Arduino library or include names (
+   case-sensitive). Library and include names are the same in most libraries, but they may differ.
+1. It is required only to specify the direct dependencies. Any deeper dependencies are automatically identified and
+   linked. For example, if *SD.h* is included, it is sufficient to link with *SD*, even if *SD* depends on other Arduino
+   libraries, like *SPI*.
 
 1. *Wire* and *core* in the above examples are not CMake targets. They are just Arduino library names (case-sensitive).
 1. It is required only to specify the direct dependencies. Any deeper dependencies are automatically identified and
@@ -153,7 +164,8 @@ target_enable_arduino_upload(my_executable) # This adds a target upload-my_execu
 
 Upload the executable (from the above example) to the board on COM3 serial port as follows
 
-**Note:** *There are changes in the commands since release 1.1. Now there is only a common upload target available for all applications, and application specific targets need to be explicitly enabled.*
+**Note:** *There are changes in the commands since release 1.1. Now there is only a common upload target available for
+all applications, and application specific targets need to be explicitly enabled.*
 
 ```sh
 <make-command> upload TARGET=my_executable SERIAL_PORT=COM3
@@ -233,7 +245,9 @@ Resolution: Please try with release-1.1-dev branch.
 
 ## Package Management
 
-For local package management, the CMake option `ARDUINO_BOARD_MANAGER_URL` can be used to specify the board manager URL of the platform. The necessary platform is locally installed in the build directory, and utilized. An example is shown below.
+For local package management, the CMake option `ARDUINO_BOARD_MANAGER_URL` can be used to specify the board manager URL
+of the platform. The necessary platform is locally installed in the build directory, and utilized. An example is shown
+below.
 
 ```sh
 cmake -D CMAKE_TOOLCHAIN_FILE=/path/to/Arduino-toolchain.cmake -D ARDUINO_BOARD_MANAGER_URL=https://dl.espressif.com/dl/package_esp32_index.json -D ARDUINO_BOARD_OPTIONS_FILE=/path/to/MyESP32BoardOptions.cmake <CMAKE_SOURCE_DIR>
