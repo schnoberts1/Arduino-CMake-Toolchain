@@ -217,7 +217,7 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 		_board_get_ref_platform("${_tool_name}" _ref_tool_pkg_name _tool_name)
 		set(ARDUINO_BOARD_${_c_tool_prop} "${_tool_name}")
 		if (_ref_tool_pkg_name AND
-			# If same as _core_pkg_name or pkg_name, no need to trasnfer
+			# If same as _core_pkg_name or pkg_name, no need to transfer
 			# tool properties, because all their platform properties got
 			# transferred already.
 			NOT "${_ref_tool_pkg_name}" STREQUAL "${_core_pkg_name}" AND
