@@ -67,8 +67,7 @@ if (NOT _BOARD_INDEXING_COMPLETED)
 	get_property(_in_try_compile GLOBAL PROPERTY IN_TRY_COMPILE)
 	# IN_TRY_COMPILE check seems to be not enough. Check for parent
 	# script works, but may be undocumented!
-	get_filename_component(parent_script "${_ARDUINO_TOOLCHAIN_PARENT}"
-		NAME_WE)
+	get_filename_component(parent_script "${_ARDUINO_TOOLCHAIN_PARENT}" NAME_WE)
 	if (parent_script STREQUAL "CMakeSystem")
 		check_board_options_changed(_b_changed)
 		if (NOT _b_changed)
