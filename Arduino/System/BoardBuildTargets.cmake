@@ -11,6 +11,7 @@ INCLUDE(Arduino/Utilities/CommonUtils)
 INCLUDE(Arduino/Utilities/SourceLocator)
 include(Arduino/Utilities/SourceDependency)
 include(Arduino/System/BoardToolchain)
+include(Arduino/System/LibraryIndex)
 
 # Define ARDUINO_LIB property on the target, to identify Arduino Library
 # targets.
@@ -156,12 +157,23 @@ function (target_link_arduino_libraries target_name)
 		endif()
 	endforeach()
 
+	# Index any local libraries (present within the local libraries folder),
+	# so that they are included in any libraries search.
+	# message("target_link_libraries indexing ${CMAKE_CURRENT_SOURCE_DIR}")
+	_index_local_libraries(_local_namespace _is_indexed)
+	if (_is_indexed)
+		# Cache the search in the parent scope as well
+		libraries_set_parent_scope("${_local_namespace}")
+	endif()
+
 	# If target_name itself is an internally maintained arduino library,
 	# use that instead (Undocumented feature, should not be used)
 	if (NOT TARGET "${target_name}")
-		target_get_arduino_lib("_arduino_lib_${target_name}" _ard_lib_name)
+		_map_libs_to_lib_names(target_name)
+		string(MAKE_C_IDENTIFIER "${target_name}" _target_id)
+		target_get_arduino_lib("_arduino_lib_${_target_id}" _ard_lib_name)
 		if (_ard_lib_name)
-			set(target_name "_arduino_lib_${target_name}")
+			set(target_name "_arduino_lib_${_target_id}")
 		else()
 			message(FATAL_ERROR "${target_name} is not a CMake target")
 		endif()
@@ -171,6 +183,7 @@ function (target_link_arduino_libraries target_name)
 	# PRIVATE/PUBLIC/INTERFACE keywords
 	if (_list_DEFAULT)
 		set(empty_list)
+		_map_libs_to_lib_names(_list_DEFAULT)
 		_link_ard_lib_list("${target_name}" _list_DEFAULT ""
 			empty_list empty_list)
 	endif()
@@ -180,6 +193,7 @@ function (target_link_arduino_libraries target_name)
 	foreach(_link_type IN ITEMS PRIVATE PUBLIC INTERFACE)
 		if (_list_${_link_type})
 			set(empty_list)
+			_map_libs_to_lib_names(_list_${_link_type})
 			_link_ard_lib_list("${target_name}" _list_${_link_type}
 				"${_link_type}" empty_list empty_list)
 		endif()
@@ -249,151 +263,111 @@ function(target_enable_arduino_upload target)
 	# TODO check if already set?
 	# Also validate if EXE target
 
-	# Add the prebuild, postbuild, prelink and postlink command hooks for the sketch
-	_set_arduino_target_hooks("${target}" "sketch.prebuild" PRE_BUILD)
-	_set_arduino_target_hooks("${target}" "sketch.postbuild;linking.prelink"
-		PRE_LINK) # Yes, as per order
-	_set_arduino_target_hooks("${target}" "linking.postlink;objcopy.preobjcopy"
-		POST_BUILD) # Yes, as per order
+	# Directory containing the generated scripts, target binary, sources
+	set(_scripts_dir "${ARDUINO_GENERATE_DIR}/.scripts")
+	set(_app_targets_dir "${CMAKE_BINARY_DIR}/.app_targets")
+	set(_bin_dir "$<TARGET_PROPERTY:${target},BINARY_DIR>")
+	set(_src_dir "$<TARGET_PROPERTY:${target},SOURCE_DIR>")
 
-	# Set image generation as a post build event
-	arduino_board_get_target_cmd("${target}" "^recipe\\.objcopy\\..*\\.pattern$"
-		objcopy_list)
-	# message("objcopy_list:${objcopy_list}")
-	foreach(objcopy IN LISTS objcopy_list)
-		# message("${objcopy}:${${objcopy}}")
-		string(REGEX MATCH "^recipe\\.objcopy\\.(.*)\\.pattern" match
-			"${objcopy}")
-		string(TOUPPER "${CMAKE_MATCH_1}" file_ext)
-		separate_arguments(cmd_with_args_list UNIX_COMMAND "${${objcopy}}")
-		add_custom_command(TARGET "${target}" POST_BUILD COMMAND
-			${cmd_with_args_list}
-			COMMENT "Generating ${file_ext} image"
-			VERBATIM)
-	endforeach()
+	# Generate content that will be used later by link/tool scripts
+	set(_app_info
+		"set(ARDUINO_BUILD_SOURCE_PATH \"${_src_dir}\")\n")
+	set(_app_info
+		"${_app_info}set(ARDUINO_BUILD_PATH \"${_bin_dir}\")\n")
+	set(_app_info
+		"${_app_info}set(ARDUINO_BUILD_PROJECT_NAME \"${target}\")\n")
+	file(GENERATE OUTPUT "${_app_targets_dir}/${target}.cmake" CONTENT
+		"${_app_info}")
 
-	_set_arduino_target_hooks("${target}" "objcopy.postobjcopy"
-		POST_BUILD) # Yes, as per order
-
-	# Post build event for size calculation
-	arduino_board_get_target_cmd("${target}" "^recipe\\.size\\.pattern$"
-		size_recipe_list)
-	# message("size_recipe_list:${size_recipe_list}")
-	foreach(size_recipe IN LISTS size_recipe_list)
-		# message("${size_recipe}:${${size_recipe}}")
-		separate_arguments(size_recipe_str UNIX_COMMAND "${${size_recipe}}")
-		add_custom_command(TARGET "${target}" POST_BUILD COMMAND
-			${CMAKE_COMMAND}
-			ARGS "-DRECIPE_SIZE_PATTERN=${size_recipe_str}"
-			-P "${CMAKE_BINARY_DIR}/FirmwareSizePrint.cmake"
-			COMMENT "Calculating '${target}' size"
-			VERBATIM)
-	endforeach()
-
-	# upload target as a custom target upload-<target>
-	set(tool "${ARDUINO_BOARD_UPLOAD_TOOL}")
-	if (tool)
-		arduino_board_get_target_cmd("${target}"
-			"^tools\\.${tool}\\.upload\\.pattern$" serial_upload_pattern)
-		arduino_board_get_target_cmd("${target}"
-			"^tools\\.${tool}\\.upload\\.network_pattern$" network_upload_pattern)
-
-		# Simplify certain long variables in the pattern
-		string(REPLACE "{upload.network." "{network." UPLOAD_NETWORK_PATTERN
-			"${UPLOAD_NETWORK_PATTERN}")
-
-		# message("${serial_upload_pattern}:${${serial_upload_pattern}}")
-		# message("${network_upload_pattern}:${${network_upload_pattern}}")
-		_get_def_env_options("${${serial_upload_pattern}}" _serial_defs)
-		_get_def_env_options("${${network_upload_pattern}}" _network_defs)
-		separate_arguments(serial_upload_pattern_str UNIX_COMMAND
-			"${${serial_upload_pattern}}")
-		separate_arguments(network_upload_pattern_str UNIX_COMMAND
-			"${${network_upload_pattern}}")
-		add_custom_target("upload-${target}" 
-			${CMAKE_COMMAND} 
-			ARGS "-DTARGET=${target}" "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-				"-DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}"
-				"-DUPLOAD_SERIAL_PATTERN=${serial_upload_pattern_str}"
-				"-DUPLOAD_NETWORK_PATTERN=${network_upload_pattern_str}"
-				${_serial_defs}
-				${_network_defs}
-			-P "${CMAKE_BINARY_DIR}/FirmwareUpload.cmake"
-			COMMENT "Uploading '${target}'"
-			VERBATIM)
-		add_dependencies("upload-${target}" "${target}")
+	# Some platforms generate source files that needs to be linked with the
+	# application target. Currently we do it here, but may later be moved
+	# to target_link_arduino_libraries(core)
+	find_source_files("${ARDUINO_GENERATE_DIR}/sketch" app_sources RECURSE)
+	if (NOT "${app_sources}" EQUAL "")
+		target_sources("${target}" PRIVATE "${app_sources}")
+		target_link_arduino_libraries("${target}" AUTO_PRIVATE "${app_sources}")
 	endif()
 
-	# program target as a custom target program-<target>
-	set(tool "${ARDUINO_BOARD_PROGRAM_TOOL}")
-	if (ARDUINO_PROGRAMMER_ID AND tool)
-		arduino_board_get_target_cmd("${target}"
-			"^tools\\.${tool}\\.program\\.pattern$" program_pattern)
-		if (program_pattern)
-			# message("${program_pattern}:${${program_pattern}}")
-			_get_def_env_options("${${program_pattern}}" _program_defs)
-			separate_arguments(program_pattern_str UNIX_COMMAND
-				"${${program_pattern}}")
-			add_custom_target("program-${target}"
-				${CMAKE_COMMAND}
-				ARGS "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-					"-DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}"
-					"-DCONFIRM_RECIPE_PATTERN=${program_pattern_str}"
-					"-DOPERATION=program-${target}"
-					${_program_defs}
-				-P "${CMAKE_BINARY_DIR}/ExecuteRecipe.cmake"
-				COMMENT "Programming '${target}'"
-				VERBATIM)
-			add_dependencies("program-${target}" "${target}")
-		endif()
-	endif()
-
-	# erase target as a custom target erase-<target>
-	set(tool "${ARDUINO_BOARD_PROGRAM_TOOL}")
-	if (ARDUINO_PROGRAMMER_ID AND tool AND NOT TARGET erase-flash)
-		arduino_board_get_target_cmd(""
-			"^tools\\.${tool}\\.erase\\.pattern$" erase_pattern)
-		if (erase_pattern)
-			# message("${erase_pattern}:${${erase_pattern}}")
-			_get_def_env_options("${${erase_pattern}}" _erase_defs)
-			separate_arguments(erase_pattern_str UNIX_COMMAND
-				"${${erase_pattern}}")
-			add_custom_target("erase-flash" 
-				${CMAKE_COMMAND}
-				ARGS "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-					"-DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}"
-					"-DCONFIRM_RECIPE_PATTERN=${erase_pattern_str}"
-					"-DOPERATION=erase-flash"
-					${_erase_defs}
-				-P "${CMAKE_BINARY_DIR}/ExecuteRecipe.cmake"
-				COMMENT "Erasing flash..."
+	# Add build rules: pre-build, pre-link, post-build, objcopy, size etc.
+	set(_build_rule_list
+		"PreBuildScript.cmake" PRE_BUILD
+			"Executing PRE_LINK hooks for '${target}'"
+		"PreLinkScript.cmake" PRE_LINK
+			"Executing PRE_LINK hooks for '${target}'"
+		"PostBuildScript.cmake" POST_BUILD
+			"Executing POST_BUILD hooks for '${target}'"
+		"ObjCopyScript.cmake" POST_BUILD
+			"Generating upload image for '${target}'"
+		"SizeScript.cmake" POST_BUILD
+			"Calculating '${target}' size")
+	list(LENGTH _build_rule_list _num_rules)
+	set(_idx 0)
+	while(_idx LESS _num_rules)
+		list(GET _build_rule_list "${_idx}" _script)
+		math(EXPR _idx "${_idx}+1")
+		list(GET _build_rule_list "${_idx}" _type)
+		math(EXPR _idx "${_idx}+1")
+		list(GET _build_rule_list "${_idx}" _comment)
+		math(EXPR _idx "${_idx}+1")
+		if (EXISTS "${_scripts_dir}/${_script}")
+			add_custom_command(TARGET "${target}" ${_type}
+				COMMAND ${CMAKE_COMMAND} ARGS
+					-D "ARDUINO_BUILD_PATH=${_bin_dir}"
+					-D "ARDUINO_BUILD_SOURCE_PATH=${_src_dir}"
+					-D "ARDUINO_BUILD_PROJECT_NAME=${target}"
+				-P "${_scripts_dir}/${_script}"
+				COMMENT "${_comment}"
 				VERBATIM)
 		endif()
-	endif()
+	endwhile()
 
-	# Burn bootloader target as a custom target burn-bootloader
-	set(tool "${ARDUINO_BOARD_BOOTLOADER_TOOL}")
-	if (ARDUINO_PROGRAMMER_ID AND tool AND NOT TARGET burn-bootloader)
-		arduino_board_get_target_cmd("" 
-			"^tools\\.${tool}\\.bootloader\\.pattern$" bootloader_pattern)
-		if (bootloader_pattern)
-			# message("${bootloader_pattern}:${${bootloader_pattern}}")
-			_get_def_env_options("${${bootloader_pattern}}" _bootloader_defs)
-			separate_arguments(bootloader_pattern_str UNIX_COMMAND
-				"${${bootloader_pattern}}")
-			add_custom_target("burn-bootloader" 
-				${CMAKE_COMMAND}
-				ARGS "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-					"-DCMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE}"
-					"-DCONFIRM_RECIPE_PATTERN=${bootloader_pattern_str}"
-					"-DOPERATION=burn-bootloader"
-					${_bootloader_defs}
-				-P "${CMAKE_BINARY_DIR}/ExecuteRecipe.cmake"
-				COMMENT "Burning bootloader..."
+	# Add tool commands: upload, upload-network, program, erase-flash,
+	# burn-bootloader, debug etc.
+	set(_tool_script_list
+		"upload" "Uploading" TRUE
+		"upload-network" "Remote provisioning" TRUE
+		"program" "Programming" TRUE
+		"erase-flash" "Erasing flash" FALSE
+		"burn-bootloader" "Burning bootloader" FALSE
+		"debug" "Debugging" TRUE)
+	list(LENGTH _tool_script_list _num_tools)
+	set(_idx 0)
+	while(_idx LESS _num_tools)
+		list(GET _tool_script_list "${_idx}" _tool_target)
+		math(EXPR _idx "${_idx}+1")
+		set(_script "${_tool_target}.cmake")
+		list(GET _tool_script_list "${_idx}" _comment)
+		math(EXPR _idx "${_idx}+1")
+		list(GET _tool_script_list "${_idx}" _is_target_specific)
+		math(EXPR _idx "${_idx}+1")
+		if (EXISTS "${_scripts_dir}/${_script}")
+			if (NOT TARGET ${_tool_target})
+				add_custom_target("${_tool_target}"
+					${CMAKE_COMMAND} ARGS
+						-D "ARDUINO_BINARY_DIR=${CMAKE_BINARY_DIR}"
+						-D "MAKE_TARGET=${_tool_target}"
+						-P "${_scripts_dir}/${_script}"
+					COMMENT "${_comment}"
+					WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+					VERBATIM)
+			endif()
+			if (NOT _is_target_specific)
+				continue()
+			endif()
+			if (NOT "${ARDUINO_LEGACY_TOOL_TARGETS}")
+				continue()
+			endif()
+			add_custom_target("${_tool_target}-${target}"
+				${CMAKE_COMMAND} ARGS
+					-D "ARDUINO_BUILD_PATH=${_bin_dir}"
+					-D "ARDUINO_BUILD_SOURCE_PATH=${_src_dir}"
+					-D "ARDUINO_BUILD_PROJECT_NAME=${target}"
+					-D "MAKE_TARGET=${_tool_target}"
+					-P "${_scripts_dir}/${_script}"
+				COMMENT "${_comment} ${target}"
 				VERBATIM)
 		endif()
-	endif()
-
+	endwhile()
 endfunction()
 
 #==============================================================================
@@ -401,29 +375,39 @@ endfunction()
 #                      [HINTS path1 [path2 ...]]
 #                      [PATH_SUFFIXES suffix1 [suffix2 ...]]
 #                      [NO_DEFAULT_PATH]
-#                      [QUIET])
+#                      [QUIET]
+#                      [EXCLUDE_LIB_NAMES] [EXCLUDE_INCLUDE_NAMES]
+#                      [LIBNAME_RESULT <var>])
 #
-# Search for the given arduino library in the standard and/or hinted paths. This
-# function is required only if there is better control needed in searching and
-# adding an arduino library explicitly (See 'add_custom_arduino_library'). Otherwise
-# 'target_link_arduino_libraries'is sufficient for simple usage.
+# Search for the given arduino library in the standard and/or hinted paths.
+# This function is required only if there is better control needed in searching
+# and adding an arduino library explicitly (See 'add_custom_arduino_library').
+# Otherwise 'target_link_arduino_libraries'is sufficient for simple usage.
 #
 # This function returns the path containing the arduino library found and it is
 # ensured that the returned library is compatible with the arduino board being 
 # built for.
 #
 # Arguments:
-# <lib> [IN]: Name of the arduino library to search
+# <lib> [IN]: Name of the arduino library to search. This can be either the
+# library name or the include name.
 # <return_lib_path> [OUT]: The path containing the library is returned in this 
 # variable
 #
 # Options:
 # HINTS: Specify directories to search in addition to the default locations.
-# PATH_SUFFIXES: Specify additional subdirectories to check below each directory 
+# PATH_SUFFIXES: Specify additional subdirectories to check below each
+# directory
 # location otherwise considered.
 # NO_DEFAULT_PATH: If specified, no default locations are added to the search
 # QUIET: If specified, an error will not be generated if the library is not
 # found
+# EXCLUDE_LIB_NAMES: Given library name should not be matched with the name
+# of the library found in library.properties
+# EXCLUDE_INCLUDE_NAMES: Given library name should not be matched with the
+# include file names of the library
+# LIBNAME_RESULT: Return the actual name of the library in this variable if
+# <lib> is an include name
 #
 # e.g. find_arduino_library(Wire lib_path)
 #
@@ -432,52 +416,94 @@ endfunction()
 # using the 'add_custom_arduino_library' function.
 function(find_arduino_library lib return_lib_path)
 
-	cmake_parse_arguments(parsed_args "NO_DEFAULT_PATH;QUIET" "" "HINTS;PATHS;PATH_SUFFIXES" ${ARGN})
+	set(_flag_options
+		NO_DEFAULT_PATH
+		QUIET
+		EXCLUDE_LIB_NAMES
+		EXCLUDE_INCLUDE_NAMES)
 
-	unset(search_paths)
-	if (NOT parsed_args_NO_DEFAULT_PATH)
-		list(APPEND search_paths
-			"${CMAKE_CURRENT_SOURCE_DIR}"
-			"${CMAKE_SOURCE_DIR}"
-			${ARDUINO_LIBRARIES_SEARCH_PATHS_EXTRA}
-			${ARDUINO_SKETCHBOOK_PATH}
-			${ARDUINO_BOARD_RUNTIME_PLATFORM_PATH}
-			${ARDUINO_CORE_SPECIFIC_PLATFORM_PATH}
-			${ARDUINO_INSTALL_PATH}
-		)
-	endif()
+	set(_one_arg_options
+		LIBNAME_RESULT)
 
-	list(APPEND search_paths
+	set(_multi_arg_options
+		HINTS
+		PATHS)
+
+	cmake_parse_arguments(parsed_args "${_flag_options}" "${_one_arg_options}"
+		"${_multi_arg_options}" ${ARGN})
+
+	# List indexed library namespaces which will be used for the search
+	set(ard_libs_ns_list)
+
+	# Index libraries from the hinted paths
+	set(_hint_paths
 		${parsed_args_HINTS}
 		${parsed_args_PATHS}
 	)
+	if (NOT "${_hint_paths}" STREQUAL "")
+		IndexArduinoLibraries(ards_libs_custom ${_hint_paths}
+			${parsed_args_UNPARSED_ARGUMENTS}
+			COMMENT "Indexing Arduino libraries for ${_hint_paths}")
+		list(APPEND ard_libs_ns_list ards_libs_custom)
+	endif()
 
-	if (NOT ARDUINO_LIB_${lib}_PATH)
-		_library_search_process("${lib}" search_paths parsed_args_PATH_SUFFIXES
-			"ARDUINO_LIB_${lib}_PATH")
-		if (ARDUINO_LIB_${lib}_PATH OR NOT parsed_args_QUIET)
-			set(ARDUINO_LIB_${lib}_PATH "${ARDUINO_LIB_${lib}_PATH}"
-				CACHE STRING
-				"Path found containing the arduino library ${lib}" FORCE)
+	# Add namespaces that contain libraries indexed from default paths
+	if (NOT parsed_args_NO_DEFAULT_PATH)
+
+		# Index local libraries if not already done within the scope
+		# and add it to the list of library namespaces
+		_index_local_libraries(_local_namespace _ign)
+		if (NOT _local_namespace STREQUAL "")
+			list(APPEND ard_libs_ns_list "${_local_namespace}")
 		endif()
-		if (ARDUINO_LIB_${lib}_PATH)
-			message(STATUS "Found Arduino Library ${lib}: ${ARDUINO_LIB_${lib}_PATH}")
+
+		# Add globally indexed libraries namespace
+		list(APPEND ard_libs_ns_list ards_libs_global)
+
+	endif()
+
+	# message("Search namespaces: ${ard_libs_ns_list}")
+
+	set(_lib_name)
+	if (DEFINED ARDUINO_LIB_${lib}_LIBNAME)
+		set(_lib_name "${ARDUINO_LIB_${lib}_LIBNAME}")
+	elseif(DEFINED ARDUINO_LIB_${lib}_PATH)
+		set(_lib_name "${lib}")
+	else()
+		_library_search_process("${ard_libs_ns_list}" "${lib}"
+			_lib_path _lib_name "${parsed_args_EXCLUDE_LIB_NAMES}"
+			"${parsed_args_EXCLUDE_INCLUDE_NAMES}")
+		if (_lib_path)
+			if (NOT DEFINED ARDUINO_LIB_${_lib_name}_PATH)
+				message(STATUS "Found Arduino Library ${_lib_name}: "
+					"${_lib_path}")
+				set(ARDUINO_LIB_${_lib_name}_PATH "${_lib_path}" CACHE STRING
+					"Path found containing the arduino library ${_lib_name}")
+			endif()
+			if (NOT _lib_name STREQUAL lib)
+				set(ARDUINO_LIB_${lib}_LIBNAME "${_lib_name}" CACHE INTERNAL
+					"Actual library name of ${lib}")
+			endif()
 		endif()
 	endif()
 
-
 	# Error message if not found
-	if (NOT ARDUINO_LIB_${lib}_PATH)
-		if (NOT parsed_args_QUIET)
-			message(SEND_ERROR "Arduino library ${lib} could not be found in "
-					"${search_paths}")
+	if (NOT _lib_name)
+		if (NOT ARDUINO_LIB_${_lib_name}_PATH)
+			if (NOT parsed_args_QUIET)
+				message(SEND_ERROR "Arduino library ${lib} could not be found in "
+						"${search_paths}")
+			endif()
+			set("${return_lib_path}" "${lib}-NOTFOUND" PARENT_SCOPE)
+			return()
 		endif()
-		set("${return_lib_path}" "${lib}-NOTFOUND" PARENT_SCOPE)
-		return()
 	endif()
 
 	# message("find_arduino_library(\"${lib}\":${ARDUINO_LIB_${lib}_PATH})")
-	set("${return_lib_path}" "${ARDUINO_LIB_${lib}_PATH}" PARENT_SCOPE)
+	if (NOT "${parsed_args_LIBNAME_RESULT}" STREQUAL "")
+		set("${parsed_args_LIBNAME_RESULT}" "${_lib_name}" PARENT_SCOPE)
+	endif()
+	set("${return_lib_path}" "${ARDUINO_LIB_${_lib_name}_PATH}" PARENT_SCOPE)
 
 endfunction()
 
@@ -561,34 +587,6 @@ endfunction()
 # Implementation functions (Subject to change. DO NOT USE)
 #
 
-SET(ARDUINO_LIBRARIES_SEARCH_PATHS_EXTRA "" CACHE PATH
-	"Paths to search for Arduino libraries in addition to standard paths"
-)
-
-# Set pre/post build command on the target from the given command hooks of the
-# board
-function(_set_arduino_target_hooks target hook_id_list hook_type)
-
-	# Add the given hooks for the target
-	set(_regex_list)
-	foreach(_hook_id IN LISTS hook_id_list)
-		string(REPLACE "." "\\." _regex "^recipe.hooks.${_hook_id}.[0-9]+.pattern$")
-		list(APPEND _regex_list "${_regex}")
-	endforeach()
-
-	#message("${_regex_list}")
-	arduino_board_get_target_cmd("${target}" "${_regex_list}" hooks_list)
-	#message("hooks_list:${hooks_list}")
-	foreach(hook IN LISTS hooks_list)
-		# message("${hook}:${${hook}}")
-		separate_arguments(cmd_with_args_list UNIX_COMMAND "${${hook}}")
-		add_custom_command(TARGET "${target}" ${hook_type} COMMAND ${cmd_with_args_list}
-			COMMENT "Executing ${hook} hook"
-			VERBATIM)
-	endforeach()
-
-endfunction()
-
 # Get the arduino libraries that are included by the given target
 # or source list
 function(_get_auto_link_libs target_name src_list_var ignore_list_var
@@ -617,38 +615,47 @@ function(_get_auto_link_libs target_name src_list_var ignore_list_var
 
 	get_target_property(target_source_dir "${target_name}" SOURCE_DIR)
 
+	set(_all_includes)
 	foreach(file IN LISTS _target_sources)
 		get_filename_component(_file_path "${file}" ABSOLUTE
 			BASE_DIR "${target_source_dir}")
 		get_source_file_included_headers("${_file_path}" _includes)
 		add_configure_dependency("${_file_path}")
-		# message("get_source_file_included_headers(${_file_path}:${_includes}:)")
-		foreach(inc IN LISTS _includes ITEMS "Arduino")
-			list(FIND ${ignore_list_var} "${inc}" _idx)
-			# Check if to be ignored
-			if (_idx LESS 0 AND NOT "${_target_ard_lib_name}" STREQUAL "${inc}")
-				if (inc STREQUAL "Arduino")
-					set(_lib "core")
-				else()
-					set(_lib "${inc}")
-				endif()
-				list(FIND override_names "${_lib}" _idx)
-				if (_idx GREATER_EQUAL 0)
-					list(GET ${override_list_var} ${_idx} _cust_lib)
-					list(APPEND _ret_list "${_cust_lib}")
-				elseif(_lib STREQUAL "core")
-					list(APPEND _ret_list "core")
-				else()
-					find_arduino_library("${inc}" _lib_path QUIET)
-					if (_lib_path)
-						list(APPEND _ret_list "${inc}")
-					endif()
-				endif()
-			endif()
-		endforeach()
+		list(APPEND _all_includes ${_includes})
 	endforeach()
 
-	if (_ret_list)
+	if (NOT "${_all_includes}" STREQUAL "")
+		list(REMOVE_DUPLICATES _all_includes)
+	endif()
+	# message("get_source_file_included_headers(${_all_includes}:)")
+	foreach(inc IN LISTS _all_includes ITEMS "Arduino")
+		list(FIND ${ignore_list_var} "${inc}" _idx)
+		# Check if to be ignored
+		if (_idx LESS 0)
+			if (inc STREQUAL "Arduino")
+				set(_lib "core")
+			else()
+				_map_libs_to_lib_names(inc EXCLUDE_LIB_NAMES QUIET)
+				set(_lib "${inc}")
+			endif()
+			if (_lib STREQUAL "")
+				continue()
+			endif()
+			if ("${_target_ard_lib_name}" STREQUAL "${_lib}")
+				# No linking with self
+				continue()
+			endif()
+			list(FIND override_names "${_lib}" _idx)
+			if (_idx GREATER_EQUAL 0)
+				list(GET ${override_list_var} ${_idx} _cust_lib)
+				list(APPEND _ret_list "${_cust_lib}")
+			else()
+				list(APPEND _ret_list "${_lib}")
+			endif()
+		endif()
+	endforeach()
+
+	if (NOT "${_ret_list}" STREQUAL "")
 		list(REMOVE_DUPLICATES _ret_list)
 	endif()
 	set("${ret_list_var}" "${_ret_list}" PARENT_SCOPE)
@@ -659,8 +666,13 @@ endfunction()
 function(_link_ard_lib_list target_name lib_list_var link_type
 	ignore_list_var override_list_var)
 
+	#message("_link_ard_lib_list \"${target_name}\" \"${${lib_list_var}}\"")
+
 	set(_link_targets)
 	foreach(_lib IN LISTS ${lib_list_var})
+
+		# Get a suitable name for the target correspoinding to lib
+		string(MAKE_C_IDENTIFIER "${_lib}" _lib_id)
 
 		# If the library name is already a target building an arduino
 		# library, use that. Typically used for convenience or for
@@ -668,25 +680,25 @@ function(_link_ard_lib_list target_name lib_list_var link_type
 		target_get_arduino_lib("${_lib}" _ard_lib_name)
 		if (_ard_lib_name)
 			set(_link_target "${_lib}")
-		elseif (TARGET "_arduino_lib_${_lib}")
+		elseif (TARGET "_arduino_lib_${_lib_id}")
 			# Already having the internal library
-			set(_link_target "_arduino_lib_${_lib}")
+			set(_link_target "_arduino_lib_${_lib_id}")
 		elseif ("${_lib}" STREQUAL "core")
 			# library is core, add a library with core sources
 			_add_internal_arduino_core(_arduino_lib_core)
 			set(_link_target "_arduino_lib_core")
 		else()
 			# add the library with its sources
-			_add_internal_arduino_library("_arduino_lib_${_lib}"
+			_add_internal_arduino_library("_arduino_lib_${_lib_id}"
 				"${_lib}")
-			if (NOT TARGET "_arduino_lib_${_lib}")
+			if (NOT TARGET "_arduino_lib_${_lib_id}")
 				return()
 			endif()
-			target_link_arduino_libraries("_arduino_lib_${_lib}"
+			target_link_arduino_libraries("_arduino_lib_${_lib_id}"
 				AUTO_PUBLIC
 				IGNORE ${${ignore_list_var}}
 				OVERRIDE ${${override_list_var}})
-			set(_link_target "_arduino_lib_${_lib}")
+			set(_link_target "_arduino_lib_${_lib_id}")
 		endif()
 
 		if (NOT "${_link_target}" STREQUAL "${target_name}")
@@ -710,10 +722,12 @@ function(_add_internal_arduino_library target lib)
 
 	set(_lib_path "${parsed_args_PATH}")
 	if (NOT _lib_path)
-		find_arduino_library("${lib}" _lib_path)
+		find_arduino_library("${lib}" _lib_path LIBNAME_RESULT lib)
 		if (NOT _lib_path)
 			return()
 		endif()
+	else()
+		# TODO Parse the library name from library.properties in the path?
 	endif()
 
 	# Index the source files
@@ -740,10 +754,6 @@ function(_add_internal_arduino_library target lib)
 	# message("\"${include_dirs}\"")
 	target_include_directories(${target} PUBLIC ${include_dirs})
 
-	# Add the prebuild and postbuild command hooks for the library
-	_set_arduino_target_hooks("${target}" "libraries.prebuild" PRE_BUILD)
-	_set_arduino_target_hooks("${target}" "libraries.postbuild" POST_BUILD)
-
 	# Add ARDUINO_LIB property
 	set_target_properties("${target}" PROPERTIES ARDUINO_LIB "${lib}")
 
@@ -762,23 +772,59 @@ function(_add_internal_arduino_core target)
 	# find_header_files("${ARDUINO_BOARD_BUILD_CORE_PATH}" core_headers)
 	# find_header_files("${ARDUINO_BOARD_BUILD_VARIANT_PATH}" variant_headers)
 
-	# On some platforms, files ending with small case .s not taken and cause issues
-	# filter this out
-	list_filter_exclude_regex(core_sources ".s$")
-
-	# get_headers_parent_directories("${core_headers};${variant_headers}" include_dirs)
+	# On some platforms, files ending with small case .s and .cxx are not taken
+	# and cause issues filter this out
+	list_filter_exclude_regex(core_sources "(.s|.[cC][xX][xX])$")
 
 	# Add the library and set the include directories
-	add_library("${target}" STATIC ${core_headers} ${core_sources}
-		${variant_headers} ${variant_sources})
-	# target_include_directories(${target} PUBLIC ${include_dirs})
-	target_include_directories(${target} PUBLIC
+	# message("${target}:${lib_sources}:\n${lib_headers}")
+	if ("${core_sources}" STREQUAL "")
+		# Could have added INTERFACE library, but due to CMake limitation
+		# of not able to set a property to INTERFACE targets, we have the
+		# following workaround of adding a dummy source file
+		configure_file(
+			${ARDUINO_TOOLCHAIN_DIR}/Arduino/Templates/DummySource.cpp.in
+			${CMAKE_CURRENT_BINARY_DIR}/${target}_dummy.cpp
+		)
+		set(core_sources "${CMAKE_CURRENT_BINARY_DIR}/${target}_dummy.cpp")
+	endif()
+
+	# Add core sources as an object library
+	add_library("${target}_cobjects_" OBJECT
+		${core_headers}
+		${core_sources})
+	target_include_directories("${target}_cobjects_" PRIVATE
+		"${ARDUINO_BOARD_BUILD_CORE_PATH}"
+		"${ARDUINO_BOARD_BUILD_VARIANT_PATH}")
+	_arduino_get_objects("${target}_cobjects_" "${core_sources}" _cobjects_)
+
+	set(_vobjects_)
+	if (NOT "${variant_sources}" STREQUAL "")
+		add_library("${target}_vobjects_" OBJECT
+			${variant_headers}
+			${variant_sources})
+		target_include_directories("${target}_vobjects_" PRIVATE
+			"${ARDUINO_BOARD_BUILD_CORE_PATH}"
+			"${ARDUINO_BOARD_BUILD_VARIANT_PATH}")
+		_arduino_get_objects("${target}_vobjects_" "${variant_sources}"
+			_vobjects_)
+	endif()
+
+	add_library("${target}" 
+		$<TARGET_OBJECTS:${target}_cobjects_>)
+	if (NOT "${_vobjects_}" STREQUAL "")
+		add_dependencies("${target}" "${target}_vobjects_")
+	endif()
+	
+	target_include_directories("${target}" INTERFACE
 		"${ARDUINO_BOARD_BUILD_CORE_PATH}"
 		"${ARDUINO_BOARD_BUILD_VARIANT_PATH}")
 
-	# Add the prebuild and postbuild command hooks for the core
-	_set_arduino_target_hooks("${target}" "core.prebuild" PRE_BUILD)
-	_set_arduino_target_hooks("${target}" "core.postbuild" POST_BUILD)
+	set(_gen_content "
+		set(ARDUINO_CORE_OBJECTS \"${_cobjects_}\")
+		set(ARDUINO_VARIANT_OBJECTS \"${_vobjects_}\")")
+	file(GENERATE OUTPUT "$<TARGET_FILE:${target}>.ard_core_info"
+		CONTENT "${_gen_content}")
 
 	# Add ARDUINO_LIB property
 	set_target_properties("${target}" PROPERTIES ARDUINO_LIB "core")
@@ -817,33 +863,62 @@ function(_find_linked_arduino_libs target_name ret_list_var)
 	set("${ret_list_var}" "${_ret_list}" PARENT_SCOPE)
 endfunction()
 
-function(_library_search_process lib search_paths_var search_suffixes_var return_var)
+# Search algorithm for Arduino libraries
+function(_library_search_process ns_list lib return_path return_lib_name
+	is_excl_lib_name is_excl_inc_name)
 
 	# message("Searching for ${lib}...")
 
 	# convert lib to a string that can be used in regular expression match
-	string(REPLACE "\\" "\\\\" lib_regex "${lib}")
-	string(REGEX REPLACE "([].$[*+?|()])" "\\1" lib_regex "${lib_regex}")
+	string_escape_regex(lib_regex "${lib}")
+
 	# message("lib_regex:${lib_regex}")
-	set(matched_folder_priority 6) # Initialize to higher value of all priorities
-	set(matched_arch_priority 3) # Initialize to higher value of all priorities
+	set(matched_lib_priority 3) # Initialize to the lowest lib priority
+	set(matched_folder_priority 7) # Initialize to the lowest folder priority
+	set(matched_arch_priority 3) # Initialize to the lowest arch priority
 	set(matched_lib_path "") # The matched library path
+	set(matched_lib_name "") # The matched library name
 
-	foreach(path IN LISTS "${search_paths_var}")
+	foreach(_ns IN LISTS ns_list)
+		libraries_get_list("${_ns}" _lib_list)
 
-		set(glob_expressions)
-		foreach(suffix IN LISTS "${search_suffixes_var}" ITEMS "libraries" "dependencies")
-			list(APPEND glob_expressions "${path}/${suffix}/*")
-		endforeach()
+		foreach(_lib_id IN LISTS _lib_list)
 
-		file(GLOB dir_list ${glob_expressions})
-		foreach(dir IN LISTS dir_list)
-			if (NOT IS_DIRECTORY "${dir}" OR NOT EXISTS "${dir}/library.properties")
+			libraries_get_property("${_ns}" "${_lib_id}" "/name" _lib_name)
+			libraries_get_property("${_ns}" "${_lib_id}" "/path" _lib_path)
+			libraries_get_property("${_ns}" "${_lib_id}" "/architectures"
+				_lib_arch_list)
+			libraries_get_property("${_ns}" "${_lib_id}" "/exp_includes"
+				_lib_exp_inc_list)
+			libraries_get_property("${_ns}" "${_lib_id}" "/imp_includes"
+				_lib_imp_inc_list)
+
+			# Check for library name match
+			set(lib_priority 0)
+			set(_imp_inc_match FALSE)
+			if ("${lib}" STREQUAL "${_lib_name}" AND NOT is_excl_lib_name)
+				# 'lib' is a library name and not include name
+				set(lib_priority 1)
+			elseif(NOT is_excl_inc_name)
+				# Check for match with the include names
+				_find_match_lib_inc_name("${lib}" _lib_exp_inc_list _found)
+				if (NOT _found)
+					set(_imp_inc_match TRUE)
+					_find_match_lib_inc_name("${lib}" _lib_imp_inc_list _found)
+				endif()
+				if (_found)
+					set(lib_priority 2)
+				endif()
+			endif()
+
+			# message("Match1 ${lib}:${_lib_path}:${lib_priority}:${_imp_inc_match}")
+			# Library is not matching with any library or include name
+			if (lib_priority EQUAL 0)
 				continue()
 			endif()
 
 			# Check for folder name match
-			get_filename_component(folder_name "${dir}" NAME)
+			get_filename_component(folder_name "${_lib_path}" NAME)
 			if ("${folder_name}" STREQUAL "${lib}")
 				set(folder_name_priority 1)
 			elseif ("${folder_name}" STREQUAL "${lib}-master")
@@ -854,21 +929,21 @@ function(_library_search_process lib search_paths_var search_suffixes_var return
 				set(folder_name_priority 4)
 			elseif("${folder_name}" MATCHES ".*${lib_regex}.*")
 				set(folder_name_priority 5)
-			else()
+			elseif(_imp_inc_match)
+				# For implicit include match, folder should match in order to
+				# avoid unnecessary linking during auto linking
 				continue()
+			else()
+				set(folder_name_priority 6)
 			endif()
 
-			# message("Folder match ${lib}:${dir}:${folder_name_priority}")
+			# message("Match2 ${lib}:${_lib_path}:${folder_name_priority}")
 
 			# Check for architecture match
-			file(STRINGS "${dir}/library.properties" arch_str REGEX "^architectures=.*")
-			string(REGEX MATCH "^architectures=(.*)" arch_list "${arch_str}")
-			string(REPLACE "," ";" arch_list "${CMAKE_MATCH_1}")
 			string(TOUPPER "${ARDUINO_BOARD_BUILD_ARCH}" board_arch)
-
-			if (arch_list)
-				set(arch_match_priority 0) # Match should happen inside the below foreach loop
-				foreach(arch IN LISTS arch_list)
+			if (NOT "${_lib_arch_list}" STREQUAL "")
+				set(arch_match_priority 0) # Match should happen in the loop
+				foreach(arch IN LISTS _lib_arch_list)
 					string(STRIP "${arch}" arch)
 					string(TOUPPER "${arch}" arch)
 					if ("${arch}" STREQUAL "${board_arch}")
@@ -885,70 +960,154 @@ function(_library_search_process lib search_paths_var search_suffixes_var return
 				set(arch_match_priority 2) # unspecified arch assumed to match
 			endif()
 
-			# message("Folder/Arch match ${lib}:${dir}:"
+			# message("Folder/Arch match ${lib}:${_lib_path}:"
+			#	"${lib_priority}/${matched_lib_priority}:"
 			#	"${folder_name_priority}/${matched_folder_priority}:"
 			#	"${arch_match_priority}/${matched_arch_priority}")
 
-			# Check for better folder name priority
-			if (${folder_name_priority} LESS ${matched_folder_priority})
-				set(matched_lib_path "${dir}")
+			# Check for better lib priority
+			if (${lib_priority} LESS ${matched_lib_priority})
+				set(matched_lib_path "${_lib_path}")
+				set(matched_lib_name "${_lib_name}")
+				set(matched_lib_priority "${lib_priority}")
 				set(matched_folder_priority "${folder_name_priority}")
 				set(matched_arch_priority "${arch_match_priority}")
+				continue()
+			elseif (NOT ${lib_priority} EQUAL ${matched_lib_priority})
+				continue()
+			endif()
+
+			# Check for better folder name priority
+			if (${folder_name_priority} LESS ${matched_folder_priority})
+				set(matched_lib_path "${_lib_path}")
+				set(matched_lib_name "${_lib_name}")
+				set(matched_folder_priority "${folder_name_priority}")
+				set(matched_arch_priority "${arch_match_priority}")
+				continue()
+			elseif (NOT ${folder_name_priority} EQUAL
+				${matched_folder_priority})
 				continue()
 			endif()
 
 			# Check for optimized architecture
 			if (${arch_match_priority} LESS ${matched_arch_priority})
-				set(matched_lib_path "${dir}")
-				set(matched_folder_priority "${folder_name_priority}")
+				set(matched_lib_path "${_lib_path}")
+				set(matched_lib_name "${_lib_name}")
 				set(matched_arch_priority "${arch_match_priority}")
+				continue()
+			elseif (NOT ${arch_match_priority} EQUAL ${matched_arch_priority})
 				continue()
 			endif()
 
 		endforeach()
-
 	endforeach()
 
-
 	if (NOT matched_lib_path)
-		set ("${return_var}" "${lib}-NOTFOUND" PARENT_SCOPE)
+		# message("${lib} Not found!!!")
+		set ("${return_path}" "${lib}-NOTFOUND" PARENT_SCOPE)
 		return()
 	endif()
 
-	# Although we got the match, let us search for the required header within the folder
-	file(STRINGS "${matched_lib_path}/library.properties" incl_list REGEX "^includes=.*")
-	string(REGEX MATCH "^includes=(.*)" incl_list "${arch_str}")
-	string(REPLACE "," ";" incl_list "${CMAKE_MATCH_1}")
-
-	foreach(h ${incl_list})
-		file(GLOB_RECURSE lib_header_path "${matched_lib_path}/${h}.h*")
-		if (NOT lib_header_path)
-			message(STATUS "Header ${h} for ${lib} is not found.")
-			set ("${return_var}" "${lib}-NOTFOUND" PARENT_SCOPE)
-			return()
-		endif()
-	endforeach()
-
-	set ("${return_var}" "${matched_lib_path}" PARENT_SCOPE)
+	# message("${lib} found!!!")
+	set ("${return_path}" "${matched_lib_path}" PARENT_SCOPE)
+	set ("${return_lib_name}" "${matched_lib_name}" PARENT_SCOPE)
 
 endfunction()
 
-function(_get_def_env_options str return_defs)
+# Index any libraries within the current directory
+function(_index_local_libraries return_namespace return_is_indexed)
 
-	properties_resolve_value_env("${str}" _tmp_str _req_var_list
-		_opt_var_list _all_resolved)
-
-	set(_defs)
-	foreach(var_name IN LISTS _req_var_list _opt_var_list)
-		string(MAKE_C_IDENTIFIER "${var_name}" var_id)
-		string(TOUPPER "${var_id}" var_id)
-		if (DEFINED "${var_id}")
-			list(APPEND _defs "-D${var_id}=${${var_id}}")
-			set("${var_id}" "${${var_id}}" CACHE STRING
-				"Default value for ${var_id} used in upload scripts")
+	set(_local_lib_paths)
+	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/libraries" OR
+		EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/dependencies")
+		list(APPEND _local_lib_paths "${CMAKE_CURRENT_SOURCE_DIR}")
+	endif()
+	list(APPEND _local_lib_paths ${ARDUINO_LIBRARIES_SEARCH_PATHS_EXTRA})
+	properties_get_value(ards_libs_global "lib_search_root_list"
+		_global_indexed_paths QUIET) # TODO
+	foreach(_path IN LISTS _global_indexed_paths)
+		if (NOT "${_local_lib_paths}" STREQUAL "")
+			list(REMOVE_ITEM _local_lib_paths "${_path}")
 		endif()
 	endforeach()
+	set("${return_is_indexed}" FALSE PARENT_SCOPE)
+	if (NOT "${_local_lib_paths}" STREQUAL "")
+		properties_get_value(ards_libs_local "lib_search_root_list"
+			_local_indexed_paths QUIET) # TODO
+		# message("_local_lib_paths:${_local_lib_paths}")
+		# message("_local_indexed_paths:${_local_indexed_paths}")
+		if (NOT "${_local_lib_paths}" STREQUAL "${_local_indexed_paths}")
+			IndexArduinoLibraries(ards_libs_local ${_local_lib_paths}
+				COMMENT "Indexing local Arduino libraries for "
+				"${CMAKE_CURRENT_SOURCE_DIR}")
+			libraries_set_parent_scope(ards_libs_local)
+			set("${return_is_indexed}" TRUE PARENT_SCOPE)
+		endif()
+		set("${return_namespace}" ards_libs_local PARENT_SCOPE)
+	else()
+		set("${return_namespace}" "" PARENT_SCOPE)
+	endif()
+endfunction()
 
-	set("${return_defs}" "${_defs}" PARENT_SCOPE)
+# Find a matching include name for the given lib
+function(_find_match_lib_inc_name lib_name inc_list_var return_flag)
+	set(_found FALSE)
+	foreach(_lib_inc IN LISTS ${inc_list_var})
+		string(REGEX MATCH "^(.+)\\.[^.]+$" _match "${_lib_inc}")
+		if (NOT "${_match}" STREQUAL "")
+			set(_lib_inc "${CMAKE_MATCH_1}")
+		endif()
+		if ("${lib_name}" STREQUAL "${_lib_inc}")
+			set(_found TRUE)
+			break()
+		endif()
+	endforeach()
+	set("${return_flag}" "${_found}" PARENT_SCOPE)
+endfunction()
 
+# target_link_arduino_libraries API takes library names as well. Here we
+# convert the given names in the API to library names using 
+# find_arduino_library. This is to ensure that we use the same target name
+# for a library regardless of whether it is linked with target name or 
+# include name.
+function(_map_libs_to_lib_names libs_list_var)
+	set(_lib_names_list)
+	foreach(_lib IN LISTS "${libs_list_var}")
+		if ("${_lib}" STREQUAL "core")
+			list(APPEND _lib_names_list "${_lib}")
+			continue()
+		endif()
+		target_get_arduino_lib("${_lib}" _ard_lib_name)
+		if (_ard_lib_name)
+			list(APPEND _lib_names_list "${_lib}")
+		else()
+			find_arduino_library("${_lib}" _lib_path
+				LIBNAME_RESULT _lib_name ${ARGN})
+			if (_lib_path)
+				list(APPEND _lib_names_list "${_lib_name}")
+			endif()
+		endif()
+	endforeach()
+	set("${libs_list_var}" "${_lib_names_list}" PARENT_SCOPE)
+endfunction()
+
+# For CMake versions below 3.9.0, predict the objects path
+function(_arduino_get_objects target sources return_objects)
+	if (NOT CMAKE_VERSION VERSION_LESS "3.9.0")
+		set(_objects "$<TARGET_OBJECTS:${target}>")
+	else()
+		set(_objects)
+		# TODO Assumption
+		set(_obj_dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir")
+		foreach(_source IN LISTS sources)
+			if (NOT "${_source}" MATCHES "\\.[sS]$")
+				set(_obj_file "${_obj_dir}/${_source}.o")
+			else()
+				set(_obj_file "${_obj_dir}/${_source}.obj")
+			endif()
+			string(REGEX REPLACE "[ ]" "_" _obj_file "${_obj_file}")
+			list(APPEND _objects "${_obj_file}")
+		endforeach()
+	endif()
+	set("${return_objects}" "${_objects}" PARENT_SCOPE)
 endfunction()
