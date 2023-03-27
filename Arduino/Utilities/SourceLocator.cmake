@@ -83,7 +83,7 @@ endfunction()
 
 #=============================================================================#
 # Finds source files matching the pre-defined source-file pattern under the given path.
-# This functions searchs explicitly for source-files such as '*.c'.
+# This functions searches explicitly for source-files such as '*.c'.
 # Search could also be recursive (With sub-directories) if the optional 'RECURSE' option is passed.
 #       _base_path - Top-Directory path to search source files in.
 #       [RECURSE] - Whether search should be done recursively or not.

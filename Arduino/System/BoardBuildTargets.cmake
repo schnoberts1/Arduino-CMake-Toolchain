@@ -71,7 +71,7 @@ define_property(TARGET
 #
 # In the above examples, the <lib> parameters (core, Wire, IRremote etc.)
 # are Arduino library names and not CMake targets. An internal CMake target
-# may be maintened by the toolchain corresponding to each of these Arduino
+# may be maintained by the toolchain corresponding to each of these Arduino
 # libraries (Such an internal target is not accessible outside the toolchain.
 # See add_custom_arduino_core/add_custom_arduino_library for advanced usage
 # only).
@@ -769,8 +769,8 @@ function(_add_internal_arduino_core target)
 	else()
 		set(variant_sources)
 	endif()
-	# find_header_files("${ARDUINO_BOARD_BUILD_CORE_PATH}" core_headers)
-	# find_header_files("${ARDUINO_BOARD_BUILD_VARIANT_PATH}" variant_headers)
+	# find_header_files("${ARDUINO_BOARD_BUILD_CORE_PATH}" core_headers RECURSE)
+	# find_header_files("${ARDUINO_BOARD_BUILD_VARIANT_PATH}" variant_headers RECURSE)
 
 	# On some platforms, files ending with small case .s and .cxx are not taken
 	# and cause issues filter this out
