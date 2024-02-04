@@ -415,12 +415,13 @@ endfunction()
 # path containing the 'Wire' library, which can be used to add this library 
 # using the 'add_custom_arduino_library' function.
 function(find_arduino_library lib return_lib_path)
+	# message(STATUS "find_arduino_library (${lib})")
 
 	set(_flag_options
 		NO_DEFAULT_PATH
 		QUIET
-		EXCLUDE_LIB_NAMES
-		EXCLUDE_INCLUDE_NAMES)
+		FALSE
+		TRUE)
 
 	set(_one_arg_options
 		LIBNAME_RESULT)
@@ -465,27 +466,32 @@ function(find_arduino_library lib return_lib_path)
 	# message("Search namespaces: ${ard_libs_ns_list}")
 
 	set(_lib_name)
+	# message(STATUS "find_arduino_library: lib ${lib}")
 	if (DEFINED ARDUINO_LIB_${lib}_LIBNAME)
 		set(_lib_name "${ARDUINO_LIB_${lib}_LIBNAME}")
+		# message(STATUS "Found Arduino Library ${_lib_name}: using ARDUINO_LIB_${lib}_LIBNAME")
 	elseif(DEFINED ARDUINO_LIB_${lib}_PATH)
 		set(_lib_name "${lib}")
+		# message(STATUS "Found Arduino Library ${_lib_name}: using ARDUINO_LIB_${lib}_PATH")
 	else()
 		_library_search_process("${ard_libs_ns_list}" "${lib}"
 			_lib_path _lib_name "${parsed_args_EXCLUDE_LIB_NAMES}"
 			"${parsed_args_EXCLUDE_INCLUDE_NAMES}")
 		if (_lib_path)
 			if (NOT DEFINED ARDUINO_LIB_${_lib_name}_PATH)
-				message(STATUS "Found Arduino Library ${_lib_name}: "
-					"${_lib_path}")
+				# message(STATUS "Found Arduino Library ${_lib_name} ${_lib_path}: not using ARDUINO_LIB_${lib}_PATH")
 				set(ARDUINO_LIB_${_lib_name}_PATH "${_lib_path}" CACHE STRING
 					"Path found containing the arduino library ${_lib_name}")
 			endif()
 			if (NOT _lib_name STREQUAL lib)
+				# message(STATUS "Found Arduino Library ${_lib_name} != {lib}")
 				set(ARDUINO_LIB_${lib}_LIBNAME "${_lib_name}" CACHE INTERNAL
 					"Actual library name of ${lib}")
 			endif()
 		endif()
 	endif()
+
+	# message(STATUS "lib={$lib}/_lib_name=${_lib_name}")
 
 	# Error message if not found
 	if (NOT _lib_name)
@@ -673,7 +679,7 @@ function(_link_ard_lib_list target_name lib_list_var link_type
 
 		# Get a suitable name for the target correspoinding to lib
 		string(MAKE_C_IDENTIFIER "${_lib}" _lib_id)
-
+		# message(STATUS "_link_ard_lib_list: ${_lib} ${_lib_id}")
 		# If the library name is already a target building an arduino
 		# library, use that. Typically used for convenience or for
 		# overridden libraries
@@ -724,6 +730,7 @@ function(_add_internal_arduino_library target lib)
 	if (NOT _lib_path)
 		find_arduino_library("${lib}" _lib_path LIBNAME_RESULT lib)
 		if (NOT _lib_path)
+			# message(STATUS "Did not find _lib_path for ${lib}")
 			return()
 		endif()
 	else()
@@ -733,7 +740,9 @@ function(_add_internal_arduino_library target lib)
 	# Index the source files
 	find_library_source_files("${_lib_path}" lib_sources)
 	find_library_header_files("${_lib_path}" lib_headers)
-	get_headers_parent_directories("${lib_headers}" include_dirs)
+	list(APPEND include_dirs "${_lib_path}")
+	list(APPEND include_dirs "${_lib_path}/src")
+	# get_headers_parent_directories("${lib_headers}" include_dirs)
 
 	# TODO Exclude files that do not belong to the board architecture
 
@@ -863,11 +872,21 @@ function(_find_linked_arduino_libs target_name ret_list_var)
 	set("${ret_list_var}" "${_ret_list}" PARENT_SCOPE)
 endfunction()
 
+function(string_starts_with str search result)
+  string(FIND "${str}" "${search}" out)
+  if(${out} EQUAL 0)
+	# message(STATUS "${str} <= ${search} = ${out}")
+  	set(${result} 0 PARENT_SCOPE)
+  else()
+  	set(${result} -1 PARENT_SCOPE)
+	endif()
+endfunction()
+
 # Search algorithm for Arduino libraries
 function(_library_search_process ns_list lib return_path return_lib_name
 	is_excl_lib_name is_excl_inc_name)
 
-	# message("Searching for ${lib}...")
+	# message(STATUS "_library_search_process: Searching for ${lib}... ${ns_list}")
 
 	# convert lib to a string that can be used in regular expression match
 	string_escape_regex(lib_regex "${lib}")
@@ -880,9 +899,11 @@ function(_library_search_process ns_list lib return_path return_lib_name
 	set(matched_lib_name "") # The matched library name
 
 	foreach(_ns IN LISTS ns_list)
+		# message(STATUS "_library_search_process: namespace ${_ns}")
 		libraries_get_list("${_ns}" _lib_list)
 
 		foreach(_lib_id IN LISTS _lib_list)
+			# message(STATUS "_library_search_process: lib_id ${_lib_id}")
 
 			libraries_get_property("${_ns}" "${_lib_id}" "/name" _lib_name)
 			libraries_get_property("${_ns}" "${_lib_id}" "/path" _lib_path)
@@ -893,11 +914,13 @@ function(_library_search_process ns_list lib return_path return_lib_name
 			libraries_get_property("${_ns}" "${_lib_id}" "/imp_includes"
 				_lib_imp_inc_list)
 
+			# message(STATUS "${lib} = ${_lib_name} ${is_excl_lib_name}")
 			# Check for library name match
 			set(lib_priority 0)
 			set(_imp_inc_match FALSE)
 			if ("${lib}" STREQUAL "${_lib_name}" AND NOT is_excl_lib_name)
 				# 'lib' is a library name and not include name
+				message ("_library_search_process: match with ${lib} = ${_lib_name}")
 				set(lib_priority 1)
 			elseif(NOT is_excl_inc_name)
 				# Check for match with the include names
@@ -907,6 +930,7 @@ function(_library_search_process ns_list lib return_path return_lib_name
 					_find_match_lib_inc_name("${lib}" _lib_imp_inc_list _found)
 				endif()
 				if (_found)
+					message ("_library_search_process: match with include ${lib} = ${_lib_exp_inc_list} ${_lib_imp_inc_list}")
 					set(lib_priority 2)
 				endif()
 			endif()
@@ -919,23 +943,23 @@ function(_library_search_process ns_list lib return_path return_lib_name
 
 			# Check for folder name match
 			get_filename_component(folder_name "${_lib_path}" NAME)
-			if ("${folder_name}" STREQUAL "${lib}")
-				set(folder_name_priority 1)
-			elseif ("${folder_name}" STREQUAL "${lib}-master")
-				set(folder_name_priority 2)
-			elseif("${folder_name}" MATCHES "^${lib_regex}.*")
-				set(folder_name_priority 3)
-			elseif("${folder_name}" MATCHES ".*${lib_regex}$")
-				set(folder_name_priority 4)
-			elseif("${folder_name}" MATCHES ".*${lib_regex}.*")
-				set(folder_name_priority 5)
-			elseif(_imp_inc_match)
-				# For implicit include match, folder should match in order to
-				# avoid unnecessary linking during auto linking
-				continue()
-			else()
-				set(folder_name_priority 6)
-			endif()
+			# if ("${folder_name}" STREQUAL "${lib}")
+			# 	set(folder_name_priority 1)
+			# elseif ("${folder_name}" STREQUAL "${lib}-master")
+			# 	set(folder_name_priority 2)
+			# elseif("${folder_name}" MATCHES "^${lib_regex}.*")
+			# 	set(folder_name_priority 3)
+			# elseif("${folder_name}" MATCHES ".*${lib_regex}$")
+			# 	set(folder_name_priority 4)
+			# elseif("${folder_name}" MATCHES ".*${lib_regex}.*")
+			# 	set(folder_name_priority 5)
+			# elseif(_imp_inc_match)
+			# 	# For implicit include match, folder should match in order to
+			# 	# avoid unnecessary linking during auto linking
+			# 	continue()
+			# else()
+			# 	set(folder_name_priority 6)
+			# endif()
 
 			# message("Match2 ${lib}:${_lib_path}:${folder_name_priority}")
 
@@ -946,24 +970,30 @@ function(_library_search_process ns_list lib return_path return_lib_name
 				foreach(arch IN LISTS _lib_arch_list)
 					string(STRIP "${arch}" arch)
 					string(TOUPPER "${arch}" arch)
+					string_starts_with(${board_arch} ${arch} arch_sub_match)
+					message(STATUS "arch=${arch} board_arch=${board_arch} ${arch_sub_match}")
 					if ("${arch}" STREQUAL "${board_arch}")
 						set(arch_match_priority 1)
 						break()
-					elseif("${arch}" STREQUAL "*")
+					elseif(${arch_sub_match} EQUAL 0)
 						set(arch_match_priority 2)
+						message(STATUS "partial match ${board_arch} ${arch}")
+					elseif("${arch}" STREQUAL "*")
+						set(arch_match_priority 3)
 					endif()
 				endforeach()
 				if (arch_match_priority EQUAL 0)
+					message(STATUS "No arch match for ${lib} ${board_arch} ${arch}")
 					continue()
 				endif()
 			else()
-				set(arch_match_priority 2) # unspecified arch assumed to match
+				set(arch_match_priority 3) # unspecified arch assumed to match
 			endif()
 
-			# message("Folder/Arch match ${lib}:${_lib_path}:"
-			#	"${lib_priority}/${matched_lib_priority}:"
-			#	"${folder_name_priority}/${matched_folder_priority}:"
-			#	"${arch_match_priority}/${matched_arch_priority}")
+			message("Folder/Arch match ${lib}:${_lib_path}:"
+				"${lib_priority}/${matched_lib_priority}:"
+				"${folder_name_priority}/${matched_folder_priority}:"
+				"${arch_match_priority}/${matched_arch_priority}")
 
 			# Check for better lib priority
 			if (${lib_priority} LESS ${matched_lib_priority})
@@ -978,16 +1008,16 @@ function(_library_search_process ns_list lib return_path return_lib_name
 			endif()
 
 			# Check for better folder name priority
-			if (${folder_name_priority} LESS ${matched_folder_priority})
-				set(matched_lib_path "${_lib_path}")
-				set(matched_lib_name "${_lib_name}")
-				set(matched_folder_priority "${folder_name_priority}")
-				set(matched_arch_priority "${arch_match_priority}")
-				continue()
-			elseif (NOT ${folder_name_priority} EQUAL
-				${matched_folder_priority})
-				continue()
-			endif()
+			# if (${folder_name_priority} LESS ${matched_folder_priority})
+			# 	set(matched_lib_path "${_lib_path}")
+			# 	set(matched_lib_name "${_lib_name}")
+			# 	set(matched_folder_priority "${folder_name_priority}")
+			# 	set(matched_arch_priority "${arch_match_priority}")
+			# 	continue()
+			# elseif (NOT ${folder_name_priority} EQUAL
+			# 	${matched_folder_priority})
+			# 	continue()
+			# endif()
 
 			# Check for optimized architecture
 			if (${arch_match_priority} LESS ${matched_arch_priority})
@@ -1009,6 +1039,7 @@ function(_library_search_process ns_list lib return_path return_lib_name
 	endif()
 
 	# message("${lib} found!!!")
+	message(STATUS "${lib} found ${matched_lib_path} ${matched_lib_name}")
 	set ("${return_path}" "${matched_lib_path}" PARENT_SCOPE)
 	set ("${return_lib_name}" "${matched_lib_name}" PARENT_SCOPE)
 

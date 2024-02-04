@@ -46,13 +46,15 @@ function(IndexArduinoLibraries namespace)
 			${ARDUINO_INSTALL_PATH})
 	endif()
 
+	message(STATUS "Search paths = ${search_paths}")
+
 	# Glob the list of all the libraries to search for in the priority order
 	set(_cached_search_root_list "${_ARDUINO_LIB_SEARCH_ROOT_LIST}")
 	set(_search_root_list)
 	set(_lib_count 0)
 	set(_lib_list)
 	foreach(_root_path IN LISTS search_paths)
-
+		message(STATUS "Globbing ${_root_path}")
 		list(FIND _cached_search_root_list "${_root_path}" _path_idx)
 		if (_path_idx LESS 0)
 			# This root path is still not scanned
@@ -66,12 +68,16 @@ function(IndexArduinoLibraries namespace)
 			list(APPEND glob_expressions "${_root_path}/${suffix}/*")
 		endforeach()
 
+		message(STATUS "Using glob expressions ${glob_expressions}")
+
 		if (CMAKE_VERSION VERSION_LESS 3.12.0)
 			file(GLOB _path_list ${glob_expressions})
 		else()
 			file(GLOB _path_list CONFIGURE_DEPENDS ${glob_expressions})
 		endif()
 		list(SORT _path_list)
+
+		message(STATUS "Got the following results: ${_path_list}")
 
 		# Reindex the libraries only if there is a change?
 		if (NOT DEFINED _LAST_ARDUINO_LIB_SEARCH_PATHS.${_path_idx} OR NOT
@@ -89,8 +95,10 @@ function(IndexArduinoLibraries namespace)
 
 		set(_idx 1)
 		list(LENGTH _ARDUINO_LIB_NAMES_LIST.${_path_idx} _num_libs)
+		message(STATUS "Number of libs found is ${_num_libs}")
 		while(_idx LESS _num_libs)
 			list(GET _ARDUINO_LIB_NAMES_LIST.${_path_idx} ${_idx} _lib_name)
+			message(STATUS "Lib name ${_lib_name}")
 			list(GET _ARDUINO_LIB_PATH_LIST.${_path_idx} ${_idx} _rel_path)
 			list(GET _ARDUINO_LIB_ARCH_LIST.${_path_idx} ${_idx} _lib_arch_str)
 			list(GET _ARDUINO_LIB_EXP_INC_LIST.${_path_idx} ${_idx}
@@ -216,21 +224,26 @@ function(_libraries_scan scan_idx scan_root_path scan_path_list)
 
 	foreach(_lib_path IN LISTS scan_path_list)
 
+		# Read the properties of the library
+		get_filename_component(_lib_path_name "${_lib_path}" NAME)
+
 		# The folder must contain library.properties
 		if (NOT IS_DIRECTORY "${_lib_path}" OR
 			NOT EXISTS "${_lib_path}/library.properties")
-			continue()
+			message(WARNING "No library.properties for ${_lib_path}. Library not compliant with Arduino library spec")
+			#continue()
+		else()
+			message(STATUS "Read ${_lib_path}/library.properties")
+			properties_read("${_lib_path}/library.properties" lib_prop)
 		endif()
 
-		# Read the properties of the library
-		get_filename_component(_lib_path_name "${_lib_path}" NAME)
-		# message("Read ${_lib_path}/library.properties")
-		properties_read("${_lib_path}/library.properties" lib_prop)
 		properties_get_value(lib_prop "name" _lib_name
 			DEFAULT "${_lib_path_name}")
 		properties_get_value(lib_prop "architectures" _lib_arch_str QUIET)
 		properties_get_value(lib_prop "includes" _lib_exp_inc_str QUIET)
 		properties_reset(lib_prop)
+
+		message(STATUS "_libraries_scan: Got name ${_lib_name} for ${_lib_path_name}")
 
 		# If no explicit includes list provides, glob for the implicit includes
 		set(_lib_imp_inc_str "")
@@ -250,6 +263,9 @@ function(_libraries_scan scan_idx scan_root_path scan_path_list)
 		list(APPEND _lib_arch_list "${_lib_arch_str}")
 		list(APPEND _lib_exp_inc_list "${_lib_exp_inc_str}")
 		list(APPEND _lib_imp_inc_list "${_lib_imp_inc_str}")
+		message(STATUS "Found includes ${_lib_imp_inc_str} /${_lib_exp_inc_str} for ${_lib_path_name}")
+		message(STATUS "Found paths ${_lib_path_list} for ${_lib_path_name}")
+		message(STATUS "Found parchs ${_lib_arch_list} for ${_lib_path_name}")
 
 	endforeach()
 
