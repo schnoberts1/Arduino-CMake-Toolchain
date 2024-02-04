@@ -919,13 +919,19 @@ function(_library_search_process ns_list lib return_path return_lib_name
 
 			# Check for architecture match
 			string(TOUPPER "${ARDUINO_BOARD_BUILD_ARCH}" board_arch)
+			# Cater for the fact giga and portenta are the same
+			set(arch2 "")
 			if (NOT "${_lib_arch_list}" STREQUAL "")
 				set(arch_match_priority 0) # Match should happen in the loop
 				foreach(arch IN LISTS _lib_arch_list)
 					string(STRIP "${arch}" arch)
 					string(TOUPPER "${arch}" arch)
+					string(REPLACE "MBED_GIGA" "MBED_PORTENTA" alt_board_arch "${board_arch}")
 					string_starts_with(${board_arch} ${arch} arch_sub_match)
 					if ("${arch}" STREQUAL "${board_arch}")
+						set(arch_match_priority 1)
+						break()
+					elseif ("${arch}" STREQUAL "${alt_board_arch}")
 						set(arch_match_priority 1)
 						break()
 					elseif(${arch_sub_match} EQUAL 0)

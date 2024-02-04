@@ -38,7 +38,7 @@ function(IndexArduinoLibraries namespace)
 	if (search_paths STREQUAL "")
 		set(search_paths
 			${CMAKE_SOURCE_DIR}
-			$CACHE{ARDUINO_LIBRARIES_SEARCH_PATHS_EXTRA}
+			${ARDUINO_LIBRARIES_SEARCH_PATHS_EXTRA}
 			${ARDUINO_PACKAGE_MANAGER_PATH}
 			${ARDUINO_SKETCHBOOK_PATH}
 			${ARDUINO_BOARD_RUNTIME_PLATFORM_PATH}
@@ -46,7 +46,7 @@ function(IndexArduinoLibraries namespace)
 			${ARDUINO_INSTALL_PATH})
 	endif()
 
-	message(DEBUG "IndexArduinoLibraries: Search paths = ${search_paths}")
+	message(DEBUG "IndexArduinoLibraries: Search paths = ${search_paths} - note suffixes are added")
 
 	# Glob the list of all the libraries to search for in the priority order
 	set(_cached_search_root_list "${_ARDUINO_LIB_SEARCH_ROOT_LIST}")
@@ -205,7 +205,7 @@ endmacro()
 
 # Scan the given paths for the Arduino libraries
 function(_libraries_scan scan_idx scan_root_path scan_path_list)
-	message(DEBUG "_libraries_scan: Scanning ${scan_path_list} for libraries....")
+	message(DEBUG "_libraries_scan: ${scan_idx} ${scan_root_path} Scanning ${scan_path_list} for libraries....")
 	# Capture all the library information in a list.
 	# Here, initial dummy non-empty ":" allows later empty fields in the list.
 	set(_lib_names_list ":")
