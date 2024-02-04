@@ -5,6 +5,10 @@ boards (AVR, ESP32 etc.). Of course, this means all the benefits of CMake for Ar
 favourite IDE, configuration checks (e.g. `try_compile`, `CheckTypeSize`), etc. This also brings the Arduino compilation
 to professional users, who are limited by the Arduino IDE compilation.
 
+## Note by schnoberts1
+
+Forked from KSDaemon's work. Contains fixes for my own Arduino stack. YMMV.
+
 ## Note by technyon
 
 This is a fork of
