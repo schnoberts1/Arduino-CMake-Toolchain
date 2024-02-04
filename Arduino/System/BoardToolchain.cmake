@@ -1162,9 +1162,7 @@ function (_board_gen_target_size_script out_file)
 		string(REGEX REPLACE "\\|\\)" ")" _size_regex "${_size_regex}")
 
 		# Excape certain characters suitable for cmake script generation
-		message("_size_regex:${_size_regex}")
 		string(REGEX REPLACE "\\\\s" "[ \t]" _size_regex "${_size_regex}")
-		message("_size_regex:${_size_regex}")
 
 		string(REGEX REPLACE "\\\\|\\\$|\"" "\\\\\\0" _size_regex
 			"${_size_regex}")

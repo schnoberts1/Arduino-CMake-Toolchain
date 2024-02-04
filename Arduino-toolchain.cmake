@@ -34,7 +34,7 @@ endif()
 cmake_policy(PUSH)
 
 # Set policy to above 3.8.0
-cmake_policy(VERSION 3.8.0)
+cmake_policy(VERSION 3.27)
 
 # Interpret if() arguments without quotes as variables/keywords
 if (NOT CMAKE_VERSION VERSION_LESS 3.1)

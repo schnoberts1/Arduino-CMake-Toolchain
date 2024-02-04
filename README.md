@@ -8,6 +8,7 @@ to professional users, who are limited by the Arduino IDE compilation.
 ## Note by schnoberts1
 
 Forked from KSDaemon's work. Contains fixes for my own Arduino stack. YMMV.
+Automatic dependency resolution being removed.
 
 ## Note by technyon
 
@@ -57,7 +58,7 @@ indirectly contributed to this project.
     - [x] Arduino *native* libraries (e.g. Ethernet, Wire)
     - [x] User installed 3rd Party Arduino libraries (e.g. IRremote)
     - [x] Project specific Arduino libraries (those present in `<CMAKE_SOURCE_DIR>/libraries`)
-    - [x] Support for automatic dependency resolution (Arduino IDE like, but unprofessional)
+    - [ ] Support for automatic dependency resolution (Arduino IDE like, but unprofessional)
 - [x] Support for debugging and utilities
     - [x] Debugging the target (Very limited support on some platforms only)
     - [ ] Serial port monitoring
