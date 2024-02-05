@@ -386,7 +386,7 @@ endfunction()
 # path containing the 'Wire' library, which can be used to add this library 
 # using the 'add_custom_arduino_library' function.
 function(find_arduino_library lib return_lib_path)
-	# message(STATUS "find_arduino_library (${lib})")
+	message(DEBUG "find_arduino_library (${lib})")
 
 	set(_flag_options
 		NO_DEFAULT_PATH
@@ -863,7 +863,7 @@ function(_library_search_process ns_list lib return_path return_lib_name
 	# message("lib_regex:${lib_regex}")
 	set(matched_lib_priority 3) # Initialize to the lowest lib priority
 	set(matched_folder_priority 7) # Initialize to the lowest folder priority
-	set(matched_arch_priority 3) # Initialize to the lowest arch priority
+	set(matched_arch_priority 5) # Initialize to the lowest arch priority
 	set(matched_lib_path "") # The matched library path
 	set(matched_lib_name "") # The matched library name
 
@@ -886,7 +886,7 @@ function(_library_search_process ns_list lib return_path return_lib_name
 			if ("${lib}" STREQUAL "${_lib_name}" AND NOT is_excl_lib_name)
 				# 'lib' is a library name and not include name
 				set(lib_priority 1)
-				message (DEBUG "_library_search_process: namespace ${_ns}, match found ${lib} = ${_lib_name}, given priority ${lib_priority}")
+				message (DEBUG "_library_search_process: namespace ${_ns}, match found ${lib} = ${_lib_name}, given lib_priority ${lib_priority}")
 			elseif(NOT is_excl_inc_name)
 					# Check for match with the include names
 					_find_match_lib_inc_name("${lib}" _lib_exp_inc_list _found)
@@ -910,15 +910,10 @@ function(_library_search_process ns_list lib return_path return_lib_name
 				set(folder_name_priority 2)
 			elseif("${folder_name}" MATCHES "^${lib_regex}.*")
 				set(folder_name_priority 3)
-			# These are toxic matches, they will ensure OneWireNg is chosen
-			# over Wire because OneWireNg has better arch but worse folder.
-			# @TODO: The priority stuff here needs fixing. This is a hack.
-			# and it doesn't work as we need to support Portenta_SDRAM from SDRAM.h
-			# as well as OneWireNg from OneWire.h
-			# elseif("${folder_name}" MATCHES ".*${lib_regex}$")
-			# 	set(folder_name_priority 4)
-			# elseif("${folder_name}" MATCHES ".*${lib_regex}.*")
-			# 	set(folder_name_priority 5)
+			elseif("${folder_name}" MATCHES ".*${lib_regex}$")
+				set(folder_name_priority 4)
+			elseif("${folder_name}" MATCHES ".*${lib_regex}.*")
+				set(folder_name_priority 5)
 			elseif(_imp_inc_match)
 				# For implicit include match, folder should match in order to
 				# avoid unnecessary linking during auto linking
@@ -937,7 +932,6 @@ function(_library_search_process ns_list lib return_path return_lib_name
 			# Check for architecture match
 			string(TOUPPER "${ARDUINO_BOARD_BUILD_ARCH}" board_arch)
 			# Cater for the fact giga and portenta are the same
-			set(arch2 "")
 			if (NOT "${_lib_arch_list}" STREQUAL "")
 				set(arch_match_priority 0) # Match should happen in the loop
 				foreach(arch IN LISTS _lib_arch_list)
@@ -975,7 +969,7 @@ function(_library_search_process ns_list lib return_path return_lib_name
 			message(DEBUG "_library_search_process: ${lib} arch_match_priority=${arch_match_priority} arch_match_priority=${arch_match_priority}")
 
 			# Check for better lib priority
-			if (${lib_priority} LESS ${matched_lib_priority})
+			if ((${lib_priority} GREATER 0) AND (${lib_priority} LESS ${matched_lib_priority}))
 				set(matched_lib_path "${_lib_path}")
 				set(matched_lib_name "${_lib_name}")
 				set(matched_lib_priority "${lib_priority}")
@@ -984,11 +978,13 @@ function(_library_search_process ns_list lib return_path return_lib_name
 				message(DEBUG "_library_search_process: ${lib} chose ${matched_lib_name} via lib priority")
 				continue()
 			elseif (NOT ${lib_priority} EQUAL ${matched_lib_priority})
-				continue()
+				message(DEBUG "_library_search_process: ${lib} did not match via lib priority")
+			else()
+				message(DEBUG "_library_search_process: ${lib} did not match via lib priority")
 			endif()
 
 			# Check for better folder name priority
-			if (${folder_name_priority} LESS ${matched_folder_priority})
+			if ((${folder_name_priority} GREATER 0) AND (${folder_name_priority} LESS ${matched_folder_priority}))
 				set(matched_lib_path "${_lib_path}")
 				set(matched_lib_name "${_lib_name}")
 				set(matched_folder_priority "${folder_name_priority}")
@@ -997,24 +993,27 @@ function(_library_search_process ns_list lib return_path return_lib_name
 				continue()
 			elseif (NOT ${folder_name_priority} EQUAL
 				${matched_folder_priority})
-				continue()
+				message(DEBUG "_library_search_process: ${lib} did not match via folder priority")
+			else()
+				message(DEBUG "_library_search_process: ${lib} did not match via folder priority")
 			endif()
 
-			# Check for optimized architecture
-			if (${arch_match_priority} LESS ${matched_arch_priority})
-				set(matched_lib_path "${_lib_path}")
-				set(matched_lib_name "${_lib_name}")
-				set(matched_arch_priority "${arch_match_priority}")
-				message(DEBUG "_library_search_process: ${lib} chose ${matched_lib_name} via arch priority")
-				continue()
-			elseif (NOT ${arch_match_priority} EQUAL ${matched_arch_priority})
-				continue()
-			endif()
+			# # Check for optimized architecture
+			# if (${arch_match_priority} LESS ${matched_arch_priority})
+			# 	set(matched_lib_path "${_lib_path}")
+			# 	set(matched_lib_name "${_lib_name}")
+			# 	set(matched_arch_priority "${arch_match_priority}")
+			# 	message(DEBUG "_library_search_process: ${lib} chose ${matched_lib_name} via arch priority")
+			# 	continue()
+			# elseif (NOT ${arch_match_priority} EQUAL ${matched_arch_priority})
+			# 	continue()
+			# endif()
 
 		endforeach()
 	endforeach()
 
 	if (NOT matched_lib_path)
+		message(DEBUG "_library_search_process: ${lib} not found")
 		set ("${return_path}" "${lib}-NOTFOUND" PARENT_SCOPE)
 		return()
 	endif()
