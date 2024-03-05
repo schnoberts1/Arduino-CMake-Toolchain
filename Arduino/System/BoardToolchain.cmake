@@ -392,7 +392,14 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	# CMAKE_C_COMPILER
 	_board_resolve_build_rule("recipe.c.o.pattern" _build_cmd
 		_build_string)
+	if (CMAKE_C_COMPILER)
+		set(_build_cmd "${CMAKE_C_COMPILER}")
+        message(WARNING "C compiler overriden from default to ${_build_cmd}")
+	endif()
 	set(CMAKE_C_COMPILER "${_build_cmd}")
+
+    string(REPLACE " -w " " " _build_string "${_build_string}")
+	message(STATUS "C BUILD ARGS ${_build_string}}")
 	set(CMAKE_C_COMPILE_OBJECT "<CMAKE_C_COMPILER> ${_build_string}")
 	string_escape_quoting(CMAKE_C_COMPILER)
 	string_escape_quoting(CMAKE_C_COMPILE_OBJECT)
@@ -400,7 +407,14 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	# CMAKE_CXX_COMPILER
 	_board_resolve_build_rule("recipe.cpp.o.pattern" _build_cmd
 		_build_string)
+	if (CMAKE_CXX_COMPILER)
+		set(_build_cmd "${CMAKE_CXX_COMPILER}")
+        message(WARNING "C++ compiler overriden from default to ${_build_cmd}")
+	endif()
 	set(CMAKE_CXX_COMPILER "${_build_cmd}")
+
+    string(REPLACE " -w " " " _build_string "${_build_string}")
+	message(STATUS "C++ BUILD ARGS ${_build_string}}")
 	set(CMAKE_CXX_COMPILE_OBJECT "<CMAKE_CXX_COMPILER> ${_build_string}")
 	string_escape_quoting(CMAKE_CXX_COMPILER)
 	string_escape_quoting(CMAKE_CXX_COMPILE_OBJECT)
@@ -408,6 +422,10 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	# CMAKE_ASM_COMPILER
 	_board_resolve_build_rule("recipe.S.o.pattern" _build_cmd
 		_build_string)
+    if (CMAKE_ASM_COMPILER)
+        set(_build_cmd "${CMAKE_ASM_COMPILER}")
+        message(WARNING "ASM compiler overriden from default to ${_build_cmd}")
+    endif()    
 	if (_build_cmd) # ASM pattern may not be there?
 		set(CMAKE_ASM_COMPILER "${_build_cmd}")
 		set(CMAKE_ASM_COMPILE_OBJECT "<CMAKE_ASM_COMPILER> ${_build_string}")
@@ -418,6 +436,10 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	# CMAKE_C_LINK_EXECUTABLE and CMAKE_CXX_LINK_EXECUTABLE
 	_board_resolve_build_rule("recipe.c.combine.pattern" _link_cmd
 		_link_pattern)
+    if (CMAKE_CXX_LINK_EXECUTABLE)
+        set(_link_cmd "${CMAKE_CXX_LINK_EXECUTABLE}")
+        message(WARNING "Linker overriden from default to ${_link_cmd}")
+    endif()
 	if (CMAKE_HOST_WIN32)
 		set(_c "\"")
 	else()
@@ -440,6 +462,10 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	# CMAKE_C_CREATE_STATIC_LIBRARY
 	_board_resolve_build_rule("recipe.ar.pattern" _build_cmd
 		_build_string)
+    if(CMAKE_AR)
+        set(_build_cmd "${CMAKE_AR}")
+        message(WARNING "AR overriden from default to ${CMAKE_AR}")
+    endif()
 	set(CMAKE_AR "${_build_cmd}")
 	set(CMAKE_C_CREATE_STATIC_LIBRARY "<CMAKE_AR> ${_build_string}")
 	string_escape_quoting(CMAKE_AR)
