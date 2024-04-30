@@ -42,8 +42,7 @@ function(IndexArduinoLibraries namespace)
 			${ARDUINO_PACKAGE_MANAGER_PATH}
 			${ARDUINO_SKETCHBOOK_PATH}
 			${ARDUINO_BOARD_RUNTIME_PLATFORM_PATH}
-			${ARDUINO_CORE_SPECIFIC_PLATFORM_PATH}
-			${ARDUINO_INSTALL_PATH})
+			${ARDUINO_CORE_SPECIFIC_PLATFORM_PATH})
 	endif()
 
 	message(DEBUG "IndexArduinoLibraries: Search paths = ${search_paths} - note suffixes are added")

@@ -777,15 +777,11 @@ endfunction()
 # Return the list of packages (JSON files) from the default install locations
 function(packages_get_default_packages return_json_files)
 
-	if (NOT ARDUINO_INSTALL_PATH AND NOT ARDUINO_PACKAGE_PATH)
+	if (NOT ARDUINO_PACKAGE_PATH)
 		InitializeArduinoPackagePathList()
 	endif()
 
 	set(_glob_pattern)
-	if (ARDUINO_INSTALL_PATH)
-		list(APPEND _glob_pattern
-			"${ARDUINO_INSTALL_PATH}/hardware/package_index_bundled.json")
-	endif()
 
 	if (ARDUINO_PACKAGE_PATH)
 		list(APPEND _glob_pattern

@@ -95,31 +95,6 @@ function(InitializeArduinoPackagePathList)
 
 	endif()
 
-	# Search for Arduino install path
-	find_path(ARDUINO_INSTALL_PATH
-			NAMES lib/version.txt
-			PATH_SUFFIXES ${install_path_suffixes}
-			HINTS ${install_search_paths}
-			NO_DEFAULT_PATH
-			NO_CMAKE_FIND_ROOT_PATH
-			DOC "Path to Arduino IDE installation")
-	# message("ARDUINO_INSTALL_PATH:${ARDUINO_INSTALL_PATH}")
-	if (NOT ARDUINO_INSTALL_PATH AND NOT "${ARDUINO_ENABLE_PACKAGE_MANAGER}"
-		AND "${ARDUINO_BOARD_MANAGER_URL}" STREQUAL "")
-		message(FATAL_ERROR "Arduino IDE installation is not found!!!\n"
-			"Use -DARDUINO_INSTALL_PATH=<path> to manually specify the path (OR)\n"
-			"Use -DARDUINO_BOARD_MANAGER_URL=<board_url> to try downloading\n")
-	elseif(ARDUINO_INSTALL_PATH AND NOT "${ARDUINO_ENABLE_PACKAGE_MANAGER}"
-        AND "${ARDUINO_BOARD_MANAGER_URL}" STREQUAL "")
-		message("${ARDUINO_INSTALL_PATH}")
-		file(READ "${ARDUINO_INSTALL_PATH}/lib/version.txt" _version)
-		string(REGEX MATCH "[0-9]+\\.[0-9]" _ard_version "${_version}")
-		if (_version AND "${_ard_version}" VERSION_LESS "1.5")
-			message(WARNING "${ARDUINO_INSTALL_PATH} may be unsupported version "
-				"${_version}. Please install newer version!")
-		endif()
-	endif()
-
 	# Search for Arduino library path
 	find_path(ARDUINO_PACKAGE_PATH
 			NAMES package_index.json

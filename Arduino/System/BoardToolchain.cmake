@@ -112,15 +112,9 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	properties_set_value("ard_global" "runtime.hardware.path" "${_prop_value}")
 
 	# Set runtime.ide.path, runtime.ide.version, ide_version and software
-	if (ARDUINO_INSTALL_PATH AND
-		EXISTS "${ARDUINO_INSTALL_PATH}/lib/version.txt")
-		set(_path "${ARDUINO_INSTALL_PATH}")
-		file(READ "${ARDUINO_INSTALL_PATH}/lib/version.txt" _version)
-                string(STRIP "${_version}" _version)
-	else()
-		set(_path "${ARDUINO_TOOLCHAIN_DIR}")
-		set(_version "${ARDUINO_TOOLCHAIN_VERSION}.0")
-	endif()
+  # Assume 2.2.1. I don't think this is used for anything useful to us.
+  set(_version "2.2.1")
+
 	string(REPLACE "." ";" _version_comp "${_version}")
 	set(_version "")
 	set(_b_first TRUE)
@@ -474,10 +468,6 @@ function (SetupBoardToolchain boards_namespace board_id generate_dir)
 	# CMAKE_CXX_CREATE_STATIC_LIBRARY
 	set(CMAKE_CXX_CREATE_STATIC_LIBRARY "<CMAKE_AR> ${_build_string}")
 	string_escape_quoting(CMAKE_CXX_CREATE_STATIC_LIBRARY)
-
-	if (ARDUINO_INSTALL_PATH)
-		list(APPEND ARDUINO_FIND_ROOT_PATH "${ARDUINO_INSTALL_PATH}")
-	endif()
 
 	_board_find_system_program_path()
 	list(APPEND ARDUINO_SYSTEM_PROGRAM_PATH "/bin")
